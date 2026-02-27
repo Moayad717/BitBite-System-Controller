@@ -20,6 +20,7 @@ FeedingStateMachine::FeedingStateMachine()
       pulseThreshold_(0),
       feedingStartTime_(0),
       cooldownStartTime_(0),
+      settleStartTime_(0),
       cooldownCallback_(nullptr) {
 }
 
@@ -58,14 +59,14 @@ bool FeedingStateMachine::startFeeding(FeedingTrigger trigger, float targetAmoun
         Serial.printf("[FSM] Manual feeding: target=%.3f kg\n", targetAmount_);
     } else if (trigger == TRIGGER_SCHEDULE) {
         targetAmount_ = targetAmount;  // From schedule
-        pulseThreshold_ = targetAmount * FEEDING_SCHEDULE_PULSE_THRESHOLD;  // 50% of target
-        Serial.printf("[FSM] Scheduled feeding: target=%.3f kg\n", targetAmount_);
+        Serial.printf("[FSM] Scheduled feeding: target=%.3f kg, effective=%.3f kg (stop-early)\n",
+                      targetAmount_, targetAmount_ * FEEDING_STOP_EARLY_FACTOR);
     } else {
         Serial.println("[FSM] ERROR: Invalid trigger");
         return false;  // Invalid trigger
     }
 
-    // Record starting weight
+    // Record starting weight (full accuracy for baseline)
     weightBefore_ = getCurrentWeight();
     Serial.printf("[FSM] Current weight: %.3f kg (threshold: %.3f kg)\n",
                   weightBefore_, FEEDING_LOW_LEVEL_THRESHOLD);
@@ -136,6 +137,10 @@ void FeedingStateMachine::update() {
             handlePulsing();
             break;
 
+        case FEEDING_SETTLING:
+            handleSettling();
+            break;
+
         case FEEDING_FINISHING:
             handleFinishing();
             break;
@@ -160,16 +165,26 @@ void FeedingStateMachine::handleIdle() {
 }
 
 void FeedingStateMachine::handleStarting() {
-    // Start motor in continuous mode
-    if (motor_) {
-        motor_->start();
+    if (trigger_ == TRIGGER_MANUAL) {
+        // Manual feed: start motor in continuous mode (existing behavior)
+        if (motor_) {
+            motor_->start();
+        }
+        state_ = FEEDING_DISPENSING;
+    } else {
+        // Scheduled feed: go directly to pulse-and-weigh cycle
+        // Start first pulse with adaptive timing
+        uint16_t onTime = getCurrentPulseOnTime();
+        if (motor_) {
+            motor_->startPulsing(onTime, FEEDING_PULSE_OFF_TIME);
+        }
+        Serial.printf("[FSM] Schedule feed: starting pulse-and-weigh (pulse=%dms)\n", onTime);
+        state_ = FEEDING_PULSING;
     }
-
-    // Move to dispensing
-    state_ = FEEDING_DISPENSING;
 }
 
 void FeedingStateMachine::handleDispensing() {
+    // Manual feed only: continuous motor then switch to pulsing
     // Check timeout
     if (isTimeoutReached()) {
         stopFeeding(RESULT_TIMEOUT);
@@ -198,13 +213,61 @@ void FeedingStateMachine::handlePulsing() {
         return;
     }
 
-    // Check if target reached
-    if (isTargetReached()) {
+    if (trigger_ == TRIGGER_MANUAL) {
+        // Manual feed: continuous pulsing with live weight check (existing behavior)
+        if (isTargetReached()) {
+            stopFeeding(RESULT_SUCCESS);
+            return;
+        }
+    } else {
+        // Scheduled feed: after one pulse ON+OFF cycle, stop and settle
+        // Wait for the motor to complete its OFF phase (pulse cycle done)
+        if (motor_ && !motor_->isRunning() && motor_->isPulsing()) {
+            // Motor is in OFF phase of pulse - stop it and go to settle
+            motor_->stop();
+            settleStartTime_ = millis();
+            state_ = FEEDING_SETTLING;
+        }
+    }
+}
+
+void FeedingStateMachine::handleSettling() {
+    // Motor is off - wait for food to finish falling and scale to stabilize
+
+    // Check timeout first
+    if (isTimeoutReached()) {
+        stopFeeding(RESULT_TIMEOUT);
+        return;
+    }
+
+    unsigned long elapsed = millis() - settleStartTime_;
+    if (elapsed < FEEDING_SETTLE_TIME) {
+        return;  // Still waiting for scale to settle
+    }
+
+    // Settle time elapsed - read weight (fast read for quicker feedback)
+    float dispensed = weightBefore_ - getCurrentWeightFast();
+    float effectiveTarget = targetAmount_ * FEEDING_STOP_EARLY_FACTOR;
+
+    Serial.printf("[FSM] Settle read: dispensed=%.3f kg, effective_target=%.3f kg (actual=%.3f kg)\n",
+                  dispensed, effectiveTarget, targetAmount_);
+
+    if (dispensed >= effectiveTarget) {
+        // Target reached (with stop-early offset)
+        Serial.printf("[FSM] Target reached! Dispensed %.3f kg (target %.3f kg, effective %.3f kg)\n",
+                      dispensed, targetAmount_, effectiveTarget);
         stopFeeding(RESULT_SUCCESS);
         return;
     }
 
-    // Motor update happens in main update() call
+    // Not enough dispensed yet - start another pulse cycle
+    uint16_t onTime = getCurrentPulseOnTime();
+    if (motor_) {
+        motor_->startPulsing(onTime, FEEDING_PULSE_OFF_TIME);
+    }
+    Serial.printf("[FSM] Another pulse cycle (pulse=%dms, remaining=%.3f kg)\n",
+                  onTime, effectiveTarget - dispensed);
+    state_ = FEEDING_PULSING;
 }
 
 void FeedingStateMachine::handleFinishing() {
@@ -254,6 +317,16 @@ float FeedingStateMachine::getCurrentWeight() const {
     return weight;
 }
 
+float FeedingStateMachine::getCurrentWeightFast() const {
+    if (!weightSensor_) {
+        Serial.println("[FSM] ERROR: weightSensor_ is NULL!");
+        return SENSOR_ERROR_VALUE;
+    }
+    float weight = weightSensor_->readWeightFast();
+    Serial.printf("[FSM] getCurrentWeightFast() = %.3f kg\n", weight);
+    return weight;
+}
+
 float FeedingStateMachine::getDispensedSinceStart() const {
     return weightBefore_ - getCurrentWeight();
 }
@@ -270,8 +343,8 @@ bool FeedingStateMachine::isTargetReached() {
         return dispensed >= FEEDING_MIN_DISPENSE;
     }
 
-    // For schedule: target amount
-    return dispensed >= targetAmount_;
+    // For schedule: effective target (with stop-early factor)
+    return dispensed >= (targetAmount_ * FEEDING_STOP_EARLY_FACTOR);
 }
 
 bool FeedingStateMachine::shouldStartPulsing() {
@@ -281,6 +354,18 @@ bool FeedingStateMachine::shouldStartPulsing() {
     return dispensed >= pulseThreshold_;
 }
 
+uint16_t FeedingStateMachine::getCurrentPulseOnTime() const {
+    // Adaptive pulse: longer when far from target, shorter when close
+    float dispensed = weightBefore_ - (weightSensor_ ? weightSensor_->readWeightFast() : 0);
+    float remaining = targetAmount_ - dispensed;
+    float remainingRatio = remaining / targetAmount_;
+
+    if (remainingRatio > FEEDING_PHASE_THRESHOLD) {
+        return FEEDING_LONG_PULSE_ON_TIME;  // Far from target: 150ms pulses
+    }
+    return FEEDING_SHORT_PULSE_ON_TIME;  // Close to target: 50ms pulses
+}
+
 // ============================================================================
 // STATUS METHODS
 // ============================================================================
@@ -288,7 +373,8 @@ bool FeedingStateMachine::shouldStartPulsing() {
 bool FeedingStateMachine::isFeeding() const {
     return (state_ == FEEDING_STARTING ||
             state_ == FEEDING_DISPENSING ||
-            state_ == FEEDING_PULSING);
+            state_ == FEEDING_PULSING ||
+            state_ == FEEDING_SETTLING);
 }
 
 FeedingState FeedingStateMachine::getState() const {

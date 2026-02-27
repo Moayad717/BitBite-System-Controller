@@ -75,18 +75,17 @@ void EnvironmentSensor::readSensor() {
         lastReadTime_ = currentTime;
         consecutiveFailures_ = 0;  // Reset failure counter on success
     } else {
-        lastReadValid_ = false;
         consecutiveFailures_++;
+        lastReadTime_ = currentTime;  // Prevent rapid retries
 
-        if (!tempValid) {
+        // Keep last valid readings for first 5 failures (DHT22 is flaky)
+        // Only mark invalid after sustained failure
+        if (consecutiveFailures_ >= 5) {
+            lastReadValid_ = false;
             lastTemperature_ = -999;
-        }
-        if (!humidityValid) {
             lastHumidity_ = -999;
-        }
 
-        // Attempt recovery after 3 consecutive failures
-        if (consecutiveFailures_ >= 3) {
+            // Attempt recovery after sustained failure
             attemptRecovery();
         }
     }
@@ -138,21 +137,33 @@ void EnvironmentSensor::attemptRecovery() {
 
     Serial.printf("[ENV] DHT stuck at -999 (%d failures) - attempting recovery\n", consecutiveFailures_);
 
-    // Reinitialize the DHT sensor
+    // Pulse the data pin LOW to reset the sensor hardware (clears stuck mid-transmission state)
     delete dht_;
+    dht_ = nullptr;
+    pinMode(pin_, OUTPUT);
+    digitalWrite(pin_, LOW);
+    delay(20);  // Hold low long enough for sensor to detect reset
+    pinMode(pin_, INPUT_PULLUP);
+
+    // Reinitialize the DHT driver and wait for sensor to stabilize
     dht_ = new DHT(pin_, type_);
     dht_->begin();
 
-    // Wait for sensor to stabilize
-    delay(2000);
+    // Wait for sensor to fully stabilize (some DHT22 variants need 3s)
+    for (int i = 0; i < 30; i++) {
+        delay(100);
+        yield();  // Feed watchdog / RTOS scheduler
+    }
 
-    // Try immediate read to test recovery
-    float temp = dht_->readTemperature();
-    float humidity = dht_->readHumidity();
+    // Force a fresh hardware read (bypass library's internal cache)
+    float temp = dht_->readTemperature(false, true);
+    float humidity = dht_->readHumidity(true);
+
+    // Reset failure counter regardless of outcome to give sensor fresh chances
+    consecutiveFailures_ = 0;
 
     if (!isnan(temp) && !isnan(humidity)) {
         Serial.printf("[ENV] Recovery successful! temp=%.1f°C, humidity=%.1f%%\n", temp, humidity);
-        consecutiveFailures_ = 0;
         lastReadValid_ = true;
         lastTemperature_ = temp;
         lastHumidity_ = humidity;

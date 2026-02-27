@@ -38,6 +38,7 @@ public:
 private:
     SensorReadings currentReadings_;
     PreviousStatus previousStatus_;
+    bool lastSentIsFeeding_;
 
     // Check if any value changed significantly
     bool hasSignificantChange();

@@ -15,8 +15,11 @@ public:
     // Initialize sensor
     bool begin(uint8_t doutPin, uint8_t clkPin, float calibrationFactor);
 
-    // Read weight in kg
+    // Read weight in kg (10 samples - accurate but slow ~1s)
     float readWeight();
+
+    // Read weight in kg (fewer samples - faster ~300ms, for use during active feeding)
+    float readWeightFast();
 
     // Tare (zero) the scale
     bool tare(uint8_t samples = 10);

@@ -56,9 +56,10 @@ private:
     float targetAmount_;        // kg - target to dispense
     float weightBefore_;        // kg - weight before feeding
     float weightAfter_;         // kg - weight after feeding (captured when motor stops)
-    float pulseThreshold_;      // kg - when to start pulsing
+    float pulseThreshold_;      // kg - when to start pulsing (manual feed only)
     unsigned long feedingStartTime_;
     unsigned long cooldownStartTime_;
+    unsigned long settleStartTime_;  // When motor stopped for settle phase
 
     // Callbacks
     CooldownCompleteCallback cooldownCallback_;
@@ -68,13 +69,17 @@ private:
     void handleStarting();
     void handleDispensing();
     void handlePulsing();
+    void handleSettling();
     void handleFinishing();
     void handleCooldown();
 
     // Helpers
     float getCurrentWeight() const;
+    float getCurrentWeightFast() const;
     float getDispensedSinceStart() const;
     bool isTimeoutReached();
     bool isTargetReached();
+    bool isEffectiveTargetReached();
     bool shouldStartPulsing();
+    uint16_t getCurrentPulseOnTime() const;
 };

@@ -394,14 +394,14 @@ void loop() {
                 bool started = feedingFSM.startFeeding(TRIGGER_SCHEDULE, amount);
 
                 if (started) {
-                    // ✅ Only mark schedule as done if feeding ACTUALLY started
+                    // Only mark schedule as done if feeding ACTUALLY started
                     scheduleManager.confirmScheduleCompleted();
                     Serial.println("[SCHEDULE] Feeding started successfully");
 
                     // Clear schedule failed fault on success
                     faultManager.clearFault(FAULT_SCHEDULE_FAILED);
                 } else {
-                    // ❌ Feeding failed to start - set fault and retry
+                    // Feeding failed to start - set fault and retry
                     FeedingResult reason = feedingFSM.getLastResult();
                     float currentWeight = feedingFSM.getWeightBefore();
                     Serial.printf("[SCHEDULE] Failed to start! Reason: %d, Weight: %.3f kg\n", reason, currentWeight);

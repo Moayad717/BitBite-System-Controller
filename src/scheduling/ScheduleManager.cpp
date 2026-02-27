@@ -111,12 +111,13 @@ bool ScheduleManager::parseSchedules(const char* jsonString) {
 
     Serial.printf("[SCHEDULE] Total schedules parsed: %d\n", scheduleCount_);
 
-    // Save to flash
-    saveToFlash();
-
-    // Calculate and send hash
+    // Calculate and send hash BEFORE flash write so WiFi ESP gets the
+    // confirmation immediately, without waiting for the slow NVS erase
     unsigned long hash = calculateHash(jsonString);
     sendHashConfirmation(hash);
+
+    // Save to flash (slow NVS erase + write - happens after confirmation sent)
+    saveToFlash();
 
     return true;
 }

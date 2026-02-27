@@ -7,6 +7,7 @@
 
 StatusReporter::StatusReporter() {
     previousStatus_.lastUpdateTime = 0;
+    lastSentIsFeeding_ = false;
 }
 
 // ============================================================================
@@ -70,6 +71,7 @@ void StatusReporter::sendStatus() {
     previousStatus_.humidity = currentReadings_.humidity;
     previousStatus_.temperature = currentReadings_.temperature;
     previousStatus_.waterFlow = currentReadings_.waterFlow;
+    lastSentIsFeeding_ = previousStatus_.isFeeding;
     previousStatus_.lastUpdateTime = millis();
 }
 
@@ -103,7 +105,9 @@ bool StatusReporter::hasSignificantChange() {
     }
 
     // Check feeding state change
-    // (isFeeding is checked in shouldSendStatus via feeding state updates)
+    if (previousStatus_.isFeeding != lastSentIsFeeding_) {
+        return true;
+    }
 
     return false;
 }

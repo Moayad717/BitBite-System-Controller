@@ -53,8 +53,9 @@ struct FaultLog {
 enum FeedingState {
     FEEDING_IDLE,           // Not feeding
     FEEDING_STARTING,       // Pre-feed checks
-    FEEDING_DISPENSING,     // Motor running, continuous
-    FEEDING_PULSING,        // Motor pulsing (near target)
+    FEEDING_DISPENSING,     // Motor running, continuous (manual feed only)
+    FEEDING_PULSING,        // Motor pulsing (one pulse cycle)
+    FEEDING_SETTLING,       // Motor off, waiting for scale to stabilize before reading
     FEEDING_FINISHING,      // Post-feed cleanup
     FEEDING_COOLDOWN_STATE  // Cooldown period
 };

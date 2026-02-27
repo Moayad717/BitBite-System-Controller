@@ -1,6 +1,7 @@
 #include "WeightSensor.h"
 #include "../config/CalibrationConfig.h"
 #include "../config/DataStructures.h"
+#include "../config/FeedingConfig.h"
 
 // ============================================================================
 // CONSTRUCTOR
@@ -52,6 +53,35 @@ float WeightSensor::readWeight() {
     // Sanity check: reject readings outside reasonable range
     if (result < -100.0f || result > 1000.0f) {
         Serial.printf("[WEIGHT] Reading out of range: %.2f kg\n", result);
+        return SENSOR_ERROR_VALUE;
+    }
+
+    lastValidWeight_ = result;
+    return result;
+}
+
+// ============================================================================
+// FAST WEIGHT READING (for active feeding feedback)
+// ============================================================================
+
+float WeightSensor::readWeightFast() {
+
+    // Read fewer samples for faster response during active feeding
+    float rawReading = scale_.get_units(FEEDING_FAST_READ_SAMPLES);
+
+    if (isnan(rawReading) || isinf(rawReading)) {
+        Serial.println("[WEIGHT] Invalid fast reading from HX711 (NaN/Inf)");
+        return SENSOR_ERROR_VALUE;
+    }
+
+    float weight = rawReading * 4.0f;
+
+    // Return in kg (get_units returns grams with our calibration)
+    float result = weight / 1000.0f;
+
+    // Sanity check: reject readings outside reasonable range
+    if (result < -100.0f || result > 1000.0f) {
+        Serial.printf("[WEIGHT] Fast reading out of range: %.2f kg\n", result);
         return SENSOR_ERROR_VALUE;
     }
 
