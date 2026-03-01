@@ -39,6 +39,9 @@
 // Storage
 #include "storage/PreferencesManager.h"
 
+// OTA
+#include "ota/SerialOTAReceiver.h"
+
 // ============================================================================
 // GLOBAL INSTANCES
 // ============================================================================
@@ -72,6 +75,9 @@ LCDDisplay lcdDisplay;
 
 // Storage
 PreferencesManager prefsManager;
+
+// OTA
+SerialOTAReceiver serialOTAReceiver;
 
 // ============================================================================
 // TIMING VARIABLES
@@ -189,6 +195,15 @@ void onCommand(const char* command) {
     else if (strcmp(command, "GET_SCHEDULE_STATUS") == 0) {
         Serial.println("[CMD] Sending schedule status");
         scheduleManager.sendScheduleStatus();
+    }
+    else if (strncmp(command, "OTA_START:", 10) == 0) {
+        // Format: OTA_START:<totalBytes>:<crc32>
+        const char* rest = command + 10;
+        char* colon = strchr(rest, ':');
+        size_t totalSize = (size_t)atoi(rest);
+        uint32_t crc = colon ? (uint32_t)strtoul(colon + 1, nullptr, 10) : 0;
+        Serial.printf("[CMD] OTA update requested: %u bytes, CRC=0x%08X\n", totalSize, crc);
+        serialOTAReceiver.startOTA(totalSize, crc);
     }
     else {
         Serial.printf("[CMD] Unknown command: '%s'\n", command);
@@ -326,9 +341,15 @@ void loop() {
     unsigned long currentMillis = millis();
 
     // ========================================================================
-    // HIGH PRIORITY: Process incoming serial commands (always)
+    // HIGH PRIORITY: Serial2 — OTA takes exclusive ownership when active
     // ========================================================================
-    serialProtocol.processIncoming();
+    if (serialOTAReceiver.isReceiving()) {
+        // OTA in progress: hand Serial2 to the OTA receiver.
+        // feedingFSM and motorController still run above to keep hardware safe.
+        serialOTAReceiver.tick();
+    } else {
+        serialProtocol.processIncoming();
+    }
 
     // ========================================================================
     // HIGH PRIORITY: Update feeding state machine (non-blocking)
