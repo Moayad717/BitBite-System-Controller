@@ -211,20 +211,19 @@ void setup() {
     Serial2.begin(SERIAL2_BAUD, SERIAL_8N1, RXD2, TXD2);
     Serial.println("[INIT] Serial2 initialized (9600 baud, 4096 byte RX buffer)");
 
-    // Initialize weight sensor (matching original working code)
+    // Initialize weight sensor
     Serial.print("[INIT] Initializing weight sensor...");
-    weightSensor.begin(SCALE_DOUT_PIN, SCALE_CLK_PIN, SCALE_CALIBRATION_FACTOR);
-
-    // Initialize storage
-    Serial.println("[INIT] Initializing preferences...");
-
-    // Load tare offset from flash if available
-    long savedOffset = prefsManager.loadTareOffset();
-    if (savedOffset != 0) {
-        weightSensor.setTareOffset(savedOffset);
-        Serial.printf(" OK (loaded tare: %ld)\n", savedOffset);
+    if (weightSensor.begin(SCALE_DOUT_PIN, SCALE_CLK_PIN, SCALE_CALIBRATION_FACTOR)) {
+        long savedOffset = prefsManager.loadTareOffset();
+        if (savedOffset != 0) {
+            weightSensor.setTareOffset(savedOffset);
+            Serial.printf(" OK (loaded tare: %ld)\n", savedOffset);
+        } else {
+            Serial.println(" OK (no saved tare - will need calibration)");
+        }
     } else {
-        Serial.println(" OK (no saved tare - will need calibration)");
+        Serial.println(" FAILED");
+        faultManager.setFault(FAULT_WEIGHT_SENSOR, "Weight Sensor Init Failed");
     }
 
     // Initialize flow sensor
@@ -237,8 +236,13 @@ void setup() {
 
     // Initialize environment sensor
     Serial.print("[INIT] Initializing DHT22 sensor...");
-    envSensor.begin(DHT_PIN, DHT_TYPE);
-    Serial.println(" OK");
+    envSensor.begin(DHT_PIN, DHT_TYPE);  // internally does delay(2000) + first read
+    if (envSensor.isValid()) {
+        Serial.println(" OK");
+    } else {
+        Serial.println(" FAILED (no valid reading)");
+        faultManager.setFault(FAULT_DHT_FAIL, "DHT22 Init Failed");
+    }
 
     // Initialize RTC
     Serial.print("[INIT] Initializing RTC...");

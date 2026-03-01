@@ -26,6 +26,16 @@ bool WeightSensor::begin(uint8_t doutPin, uint8_t clkPin, float calibrationFacto
     // Set calibration factor immediately after begin()
     scale_.set_scale(calibrationFactor_);
 
+    // Wait up to 500ms for HX711 to signal ready (DOUT low = ready)
+    unsigned long start = millis();
+    while (!scale_.is_ready() && (millis() - start) < 500) {
+        delay(10);
+    }
+
+    if (!scale_.is_ready()) {
+        return false;  // HX711 not responding
+    }
+
     initialized_ = true;
     return true;
 }
