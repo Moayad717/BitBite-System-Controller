@@ -1,5 +1,6 @@
 #include "SerialOTAReceiver.h"
 #include <Update.h>
+#include <esp_task_wdt.h>
 
 // ============================================================================
 // CONSTRUCTOR
@@ -31,7 +32,11 @@ void SerialOTAReceiver::startOTA(size_t totalSize, uint32_t expectedCRC) {
     updateBegun_ = true;
     receiving_   = true;
 
-    // Flush any leftover bytes from normal protocol traffic
+    // Drain any queued outgoing status/fault messages before sending OTA_READY,
+    // so the Master doesn't read a stale JSON frame instead of OTA_READY.
+    Serial2.flush();
+
+    // Flush any leftover incoming bytes from normal protocol traffic
     while (Serial2.available()) Serial2.read();
 
     Serial2.println("OTA_READY");
@@ -142,7 +147,8 @@ void SerialOTAReceiver::handleChunk(const char* line) {
     if (len > sizeof(buf)) { abort("chunk_too_large"); return; }
     size_t decoded = hexToBytes(p, hexLen, buf);
 
-    // Write to OTA partition
+    // Write to OTA partition — feed watchdog in case flash write stalls
+    esp_task_wdt_reset();
     size_t written = Update.write(buf, decoded);
     if (written != decoded) {
         Serial.printf("[OTA] Write failed: wrote %u / %u bytes\n", written, decoded);

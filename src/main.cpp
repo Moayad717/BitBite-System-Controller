@@ -116,8 +116,10 @@ void onFeedingComplete() {
 
         // Force send status immediately so WiFi ESP gets the fault notification
         statusReporter.updateFaults(faultManager.getActiveFaults());
-        statusReporter.forceSend();
-        Serial.println("[FAULT] Motor stuck status sent to WiFi ESP");
+        if (!serialOTAReceiver.isReceiving()) {
+            statusReporter.forceSend();
+            Serial.println("[FAULT] Motor stuck status sent to WiFi ESP");
+        }
     } else if (result == RESULT_SUCCESS) {
         // Clear motor stuck fault only on successful feeding
         faultManager.clearFault(FAULT_MOTOR_STUCK);
@@ -152,7 +154,7 @@ void onCommand(const char* command) {
                 // Update status to report the failure (lastFeedComplete = 2 for low level)
                 statusReporter.updateFeedingState(false, feedingFSM.getLastResult());
                 // Force send status immediately so WiFi ESP gets the failure notification
-                statusReporter.forceSend();
+                if (!serialOTAReceiver.isReceiving()) statusReporter.forceSend();
 
                 // Reset lastFeedComplete back to 0 after sending
                 delay(100);  // Small delay to ensure message is sent
@@ -442,7 +444,7 @@ void loop() {
 
                     // Force send fault notification to WiFi ESP
                     statusReporter.updateFaults(faultManager.getActiveFaults());
-                    statusReporter.forceSend();
+                    if (!serialOTAReceiver.isReceiving()) statusReporter.forceSend();
                 }
             }
         }
@@ -459,7 +461,7 @@ void loop() {
     // ========================================================================
     // LOW PRIORITY: Send status updates (delta-based or 5-minute heartbeat)
     // ========================================================================
-    if (currentMillis - lastStatusReport >= 1000) {  // Check every second
+    if (!serialOTAReceiver.isReceiving() && currentMillis - lastStatusReport >= 1000) {
         lastStatusReport = currentMillis;
 
         if (statusReporter.shouldSendStatus()) {
