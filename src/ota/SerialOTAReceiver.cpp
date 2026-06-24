@@ -79,6 +79,21 @@ void SerialOTAReceiver::processLine() {
         handleChunk(lineBuf_);
     } else if (strcmp(lineBuf_, "OTA_END") == 0) {
         handleEnd();
+    } else if (strncmp(lineBuf_, "OTA_START:", 10) == 0) {
+        // Sender is retrying — abort current transfer and start fresh.
+        Serial.println("[OTA] OTA_START received mid-transfer — resetting");
+        if (updateBegun_) {
+            Update.abort();
+            updateBegun_ = false;
+        }
+        receiving_ = false;
+        lineIdx_   = 0;
+
+        const char* rest = lineBuf_ + 10;
+        char* colon = strchr(rest, ':');
+        size_t totalSize = (size_t)atoi(rest);
+        uint32_t crc = colon ? (uint32_t)strtoul(colon + 1, nullptr, 10) : 0;
+        startOTA(totalSize, crc);
     } else {
         Serial.printf("[OTA] Unexpected line during receive: '%s'\n", lineBuf_);
     }
