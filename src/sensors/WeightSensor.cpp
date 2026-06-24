@@ -45,6 +45,7 @@ bool WeightSensor::begin(uint8_t doutPin, uint8_t clkPin, float calibrationFacto
 // ============================================================================
 
 float WeightSensor::readWeight() {
+    if (!initialized_) return SENSOR_ERROR_VALUE;
 
     // Read average of multiple samples
     // Multiply by 4 (hardware-specific calibration for load cell configuration)
@@ -75,6 +76,7 @@ float WeightSensor::readWeight() {
 // ============================================================================
 
 float WeightSensor::readWeightFast() {
+    if (!initialized_) return SENSOR_ERROR_VALUE;
 
     // Read fewer samples for faster response during active feeding
     float rawReading = scale_.get_units(FEEDING_FAST_READ_SAMPLES);

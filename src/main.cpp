@@ -89,6 +89,20 @@ unsigned long lastFaultCheck = 0;
 unsigned long lastStatusReport = 0;
 
 // ============================================================================
+// SYSTEM MODE
+// ============================================================================
+
+enum class SystemMode { NORMAL, OTA };
+
+// Single place that decides what the system is allowed to do.
+// All loop guards check this instead of querying serialOTAReceiver directly,
+// so adding a future mode (e.g. CALIBRATING) is a one-line change here.
+inline SystemMode getSystemMode() {
+    if (serialOTAReceiver.isReceiving()) return SystemMode::OTA;
+    return SystemMode::NORMAL;
+}
+
+// ============================================================================
 // CALLBACK HANDLERS
 // ============================================================================
 
@@ -102,8 +116,10 @@ void onFeedingComplete() {
     char timestamp[32];
     rtcManager.getTimestamp(timestamp, sizeof(timestamp));
 
-    // Log the feeding
-    feedingLogger.logFeeding(trigger, amount, result, timestamp);
+    // Only log to Serial2 when not in OTA mode — logger writes directly to the wire
+    if (getSystemMode() == SystemMode::NORMAL) {
+        feedingLogger.logFeeding(trigger, amount, result, timestamp);
+    }
 
     Serial.printf("[FEEDING] Complete: trigger=%d, amount=%.3f kg, result=%d\n",
                   trigger, amount, result);
@@ -116,7 +132,7 @@ void onFeedingComplete() {
 
         // Force send status immediately so WiFi ESP gets the fault notification
         statusReporter.updateFaults(faultManager.getActiveFaults());
-        if (!serialOTAReceiver.isReceiving()) {
+        if (getSystemMode() == SystemMode::NORMAL) {
             statusReporter.forceSend();
             Serial.println("[FAULT] Motor stuck status sent to WiFi ESP");
         }
@@ -154,7 +170,7 @@ void onCommand(const char* command) {
                 // Update status to report the failure (lastFeedComplete = 2 for low level)
                 statusReporter.updateFeedingState(false, feedingFSM.getLastResult());
                 // Force send status immediately so WiFi ESP gets the failure notification
-                if (!serialOTAReceiver.isReceiving()) statusReporter.forceSend();
+                if (getSystemMode() == SystemMode::NORMAL) statusReporter.forceSend();
 
                 // Reset lastFeedComplete back to 0 after sending
                 delay(100);  // Small delay to ensure message is sent
@@ -226,7 +242,7 @@ void setup() {
     // Initialize Serial2 for WiFi ESP communication
     Serial2.setRxBufferSize(4096);  // Increase RX buffer for large JSON payloads
     Serial2.begin(SERIAL2_BAUD, SERIAL_8N1, RXD2, TXD2);
-    Serial.println("[INIT] Serial2 initialized (9600 baud, 4096 byte RX buffer)");
+    Serial.println("[INIT] Serial2 initialized (115200 baud, 4096 byte RX buffer)");
 
     // Initialize weight sensor
     Serial.print("[INIT] Initializing weight sensor...");
@@ -366,7 +382,7 @@ void loop() {
     // ========================================================================
     // MEDIUM PRIORITY: Read sensors (every 1 second)
     // ========================================================================
-    if (currentMillis - lastSensorRead >= 1000) {
+    if (getSystemMode() == SystemMode::NORMAL && currentMillis - lastSensorRead >= 1000) {
         lastSensorRead = currentMillis;
 
         // Update flow sensor
@@ -411,7 +427,7 @@ void loop() {
     // ========================================================================
     // MEDIUM PRIORITY: Check schedules (every 10 seconds)
     // ========================================================================
-    if (currentMillis - lastScheduleCheck >= 10000) {
+    if (getSystemMode() == SystemMode::NORMAL && currentMillis - lastScheduleCheck >= 10000) {
         lastScheduleCheck = currentMillis;
 
         if (!feedingFSM.isFeeding() && rtcManager.isValid()) {
@@ -444,7 +460,7 @@ void loop() {
 
                     // Force send fault notification to WiFi ESP
                     statusReporter.updateFaults(faultManager.getActiveFaults());
-                    if (!serialOTAReceiver.isReceiving()) statusReporter.forceSend();
+                    if (getSystemMode() == SystemMode::NORMAL) statusReporter.forceSend();
                 }
             }
         }
@@ -453,7 +469,7 @@ void loop() {
     // ========================================================================
     // LOW PRIORITY: Check for faults (every 30 seconds)
     // ========================================================================
-    if (currentMillis - lastFaultCheck >= 30000) {
+    if (getSystemMode() == SystemMode::NORMAL && currentMillis - lastFaultCheck >= 30000) {
         lastFaultCheck = currentMillis;
         faultDetector.checkAll();
     }
@@ -461,7 +477,7 @@ void loop() {
     // ========================================================================
     // LOW PRIORITY: Send status updates (delta-based or 5-minute heartbeat)
     // ========================================================================
-    if (!serialOTAReceiver.isReceiving() && currentMillis - lastStatusReport >= 1000) {
+    if (getSystemMode() == SystemMode::NORMAL && currentMillis - lastStatusReport >= 1000) {
         lastStatusReport = currentMillis;
 
         if (statusReporter.shouldSendStatus()) {

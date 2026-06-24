@@ -27,7 +27,7 @@
 // Serial Communication with WiFi ESP
 #define RXD2 16                 // Serial2 RX (receives from WiFi ESP)
 #define TXD2 17                 // Serial2 TX (sends to WiFi ESP)
-#define SERIAL2_BAUD 9600       // Must match WiFi ESP
+#define SERIAL2_BAUD 115200     // Must match WiFi ESP
 
 // LCD Display Configuration
 #define LCD_COLS 16
