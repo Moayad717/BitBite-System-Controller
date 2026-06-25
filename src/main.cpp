@@ -1,11 +1,9 @@
 #include <Arduino.h>
 #include <esp_task_wdt.h>
 
-// Watchdog timeout in seconds (30s allows for sensor reads + I2C delays)
-#define WDT_TIMEOUT_S 30
-
 // Configuration
 #include "config/Config.h"
+#include "config/TimingConfig.h"
 #include "config/FeedingConfig.h"
 #include "config/CalibrationConfig.h"
 
@@ -382,7 +380,7 @@ void loop() {
     // ========================================================================
     // MEDIUM PRIORITY: Read sensors (every 1 second)
     // ========================================================================
-    if (getSystemMode() == SystemMode::NORMAL && currentMillis - lastSensorRead >= 1000) {
+    if (getSystemMode() == SystemMode::NORMAL && currentMillis - lastSensorRead >= SENSOR_READ_INTERVAL_MS) {
         lastSensorRead = currentMillis;
 
         // Update flow sensor
@@ -427,7 +425,7 @@ void loop() {
     // ========================================================================
     // MEDIUM PRIORITY: Check schedules (every 10 seconds)
     // ========================================================================
-    if (getSystemMode() == SystemMode::NORMAL && currentMillis - lastScheduleCheck >= 10000) {
+    if (getSystemMode() == SystemMode::NORMAL && currentMillis - lastScheduleCheck >= SCHEDULE_CHECK_INTERVAL_MS) {
         lastScheduleCheck = currentMillis;
 
         if (!feedingFSM.isFeeding() && rtcManager.isValid()) {
@@ -469,7 +467,7 @@ void loop() {
     // ========================================================================
     // LOW PRIORITY: Check for faults (every 30 seconds)
     // ========================================================================
-    if (getSystemMode() == SystemMode::NORMAL && currentMillis - lastFaultCheck >= 30000) {
+    if (getSystemMode() == SystemMode::NORMAL && currentMillis - lastFaultCheck >= FAULT_CHECK_INTERVAL_MS) {
         lastFaultCheck = currentMillis;
         faultDetector.checkAll();
     }
@@ -477,7 +475,7 @@ void loop() {
     // ========================================================================
     // LOW PRIORITY: Send status updates (delta-based or 5-minute heartbeat)
     // ========================================================================
-    if (getSystemMode() == SystemMode::NORMAL && currentMillis - lastStatusReport >= 1000) {
+    if (getSystemMode() == SystemMode::NORMAL && currentMillis - lastStatusReport >= STATUS_REPORT_INTERVAL_MS) {
         lastStatusReport = currentMillis;
 
         if (statusReporter.shouldSendStatus()) {

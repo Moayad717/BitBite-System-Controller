@@ -47,6 +47,10 @@ private:
     uint32_t expectedCRC_;
     int expectedSeq_;
 
+    // If no bytes arrive for this long while receiving, the Master is assumed dead.
+    static const uint32_t RECEIVE_TIMEOUT_MS = 30000;
+    uint32_t lastActivityMs_;
+
     // Line receive buffer
     // Max line: "OTA_CHUNK:" (10) + seq (4) + ":" + len (3) + ":" + 512 hex = ~531
     static const size_t LINE_BUF_SIZE = 700;

@@ -8,7 +8,8 @@
 
 SerialOTAReceiver::SerialOTAReceiver()
     : receiving_(false), updateBegun_(false),
-      totalSize_(0), expectedCRC_(0), expectedSeq_(0), lineIdx_(0) {}
+      totalSize_(0), expectedCRC_(0), expectedSeq_(0),
+      lastActivityMs_(0), lineIdx_(0) {}
 
 // ============================================================================
 // START OTA — called from onCommand() in main.cpp
@@ -29,8 +30,9 @@ void SerialOTAReceiver::startOTA(size_t totalSize, uint32_t expectedCRC) {
         return;
     }
 
-    updateBegun_ = true;
-    receiving_   = true;
+    updateBegun_     = true;
+    receiving_       = true;
+    lastActivityMs_  = millis();  // start the idle watchdog from now
 
     // Drain any queued outgoing status/fault messages before sending OTA_READY,
     // so the Master doesn't read a stale JSON frame instead of OTA_READY.
@@ -48,7 +50,16 @@ void SerialOTAReceiver::startOTA(size_t totalSize, uint32_t expectedCRC) {
 // ============================================================================
 
 void SerialOTAReceiver::tick() {
+    // If the Master goes silent for 30 seconds, assume it crashed or lost power.
+    // Abort and return to NORMAL mode so the Controller doesn't stay frozen.
+    if (millis() - lastActivityMs_ > RECEIVE_TIMEOUT_MS) {
+        Serial.println("[OTA] Receive timeout — no data for 30s, Master may be down");
+        abort("timeout");
+        return;
+    }
+
     while (Serial2.available()) {
+        lastActivityMs_ = millis();  // reset timeout on every received byte
         char c = (char)Serial2.read();
 
         if (c == '\n') {
